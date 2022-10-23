@@ -3,7 +3,9 @@
 const Player = {
   ...hasRandom,
   getSubmission: Fun([], Tuple(UInt, UInt)),
-  seeOutcome: Fun([UInt], Null),
+  seeOutcome: Fun([UInt, UInt], Null),
+  informTimeout: Fun([], Null),
+  informDraw: Fun([], Null),
 };
 
 const [isOutcome, B_WINS, DRAW, A_WINS] = makeEnum(3);
@@ -25,6 +27,7 @@ export const main = Reach.App(() => {
   const Alice = Participant("Alice", {
     ...Player,
     wager: UInt,
+    deadline: UInt,
   });
   const Bob = Participant("Bob", {
     ...Player,
@@ -32,43 +35,60 @@ export const main = Reach.App(() => {
   });
   init();
 
+  const informTimeout = () => {
+    each([Alice, Bob], () => {
+      interact.informTimeout();
+    });
+  };
+
   Alice.only(() => {
     const amt = declassify(interact.wager);
-    const _aliceSubmission = interact.getSubmission();
-    const [_commitAlice, _saltAlice] = makeCommitment(interact, _aliceSubmission);
-    const commitAlice = declassify(_commitAlice);
+    const timer = declassify(interact.deadline);
   });
-  Alice.publish(commitAlice, amt).pay(amt);
+  Alice.publish(amt, timer).pay(amt);
   commit();
 
   Bob.only(() => {
     interact.acceptWager(amt);
-    const [bobHand, bobTotal] = declassify(interact.getSubmission());
   });
-  Bob.publish(bobTotal, bobHand).pay(amt);
-  commit();
-  Alice.only(() => {
-    const saltAlice = declassify(_saltAlice);
-    const aliceSubmission = declassify(_aliceSubmission);
-  });
+  Bob.pay(amt).timeout(relativeTime(timer), () => closeTo(Alice, informTimeout));
+  var outcome = [DRAW, 0]
+  invariant(balance() == 2 * amt && isOutcome(outcome[0]));
+  while (outcome[0] == DRAW ) {
+    commit();
 
-  Alice.publish(saltAlice, aliceSubmission);
-  checkCommitment(commitAlice, saltAlice, aliceSubmission);
-  
-  const [aliceHand, aliceTotal ]= aliceSubmission
+    Alice.only(() => {
+      const _aliceSubmission = interact.getSubmission();
+      const [_commitAlice, _saltAlice] = makeCommitment(interact, _aliceSubmission);
+      const commitAlice = declassify(_commitAlice);
+    });
+    Alice.publish(commitAlice).timeout(relativeTime(timer), () => closeTo(Bob, informTimeout));
+    commit();
 
-  const total = aliceHand + bobHand;
-  const outcome = winner(aliceTotal, bobTotal, total);
-  const [forAlice, forBob] = outcome == A_WINS ? [2, 0]
-                           : outcome == B_WINS ? [0, 2]
-                                               : [1, 1];
+    unknowable(Bob, Alice(_aliceSubmission, _saltAlice));
 
-  transfer(forAlice * amt).to(Alice);
-  transfer(forBob * amt).to(Bob);
+    Bob.only(() => {
+      const [bobHand, bobTotal] = declassify(interact.getSubmission());
+    });
+    Bob.publish(bobHand, bobTotal).timeout(relativeTime(timer), () => closeTo(Alice, informTimeout));
+    commit();
+
+    Alice.only(() => {
+      const saltAlice = declassify(_saltAlice);
+      const aliceSubmission = declassify(_aliceSubmission);
+    });
+    Alice.publish(saltAlice, aliceSubmission).timeout(relativeTime(timer), () => closeTo(Bob, informTimeout));
+    checkCommitment(commitAlice, saltAlice, aliceSubmission);
+    const [aliceHand, aliceTotal] = aliceSubmission;
+    outcome = [winner(aliceTotal, bobTotal, aliceHand + bobHand), outcome[1]+1]
+    continue;
+  }
+  assert(outcome[0] == A_WINS || outcome[0] == B_WINS);
+  transfer(2 * amt).to(outcome == A_WINS ? Alice : Bob);
   commit();
 
   each([Alice, Bob], () => {
-    interact.seeOutcome(outcome);
+    interact.seeOutcome(outcome[0], outcome[1]);
   });
 
   exit();

@@ -24,16 +24,23 @@ const Player = (Who) => ({
     console.log(`${Who} played ${submission[0]} fingers and a total of ${submission[1]}.`);
     return submission;
   },
-  seeOutcome: (outcome) => {
-    console.log(`${Who} saw outcome of ${OUTCOME[outcome]}`);
+  seeOutcome: (outcome, i) => {
+    console.log(`${Who} saw outcome of ${OUTCOME[outcome]} after playing ${i} rounds.`);
   },
+  informTimeout : () => {
+    console.log(`${Who} has witnessed a time out!!!`)
+  },
+  informDraw : ()=> {
+    console.log("=== Result was a DRAW, continuining to new round ===")
+  }
 });
 
 await Promise.all([
   backend.Alice(ctcAlice, {
     ...stdlib.hasRandom,
     ...Player("Alice"),
-    wager: stdlib.parseCurrency(5)
+    wager: stdlib.parseCurrency(5),
+    deadline: 10,
   }),
   backend.Bob(ctcBob, {
     ...stdlib.hasRandom,
