@@ -9,85 +9,85 @@ const Player = {
 };
 
 const [isOutcome, B_WINS, DRAW, A_WINS] = makeEnum(3);
-const winner = (aliceTotal, bobTotal, total) =>
-  aliceTotal == bobTotal ? DRAW : total == aliceTotal ? A_WINS : total == bobTotal ? B_WINS : DRAW;
+const winner = (hostTotal, guestTotal, total) =>
+hostTotal == guestTotal ? DRAW : total == hostTotal ? A_WINS : total == guestTotal ? B_WINS : DRAW;
 
 check(winner(1, 2, 3) == DRAW);
 check(winner(1, 1, 1) == DRAW);
 check(winner(6, 7, 7) == B_WINS);
 check(winner(2, 1, 2) == A_WINS);
 
-forall(UInt, (aliceTotal) => {
-  forall(UInt, (bobTotal) => {
-    forall(UInt, (total) => assert(isOutcome(winner(aliceTotal, bobTotal, total))));
+forall(UInt, (hostTotal) => {
+  forall(UInt, (guestTotal) => {
+    forall(UInt, (total) => assert(isOutcome(winner(hostTotal, guestTotal, total))));
   });
 });
 
 export const main = Reach.App(() => {
-  const Alice = Participant("Alice", {
+  const Host = Participant("Host", {
     ...Player,
     wager: UInt,
     deadline: UInt,
   });
-  const Bob = Participant("Bob", {
+  const Guest = Participant("Guest", {
     ...Player,
     acceptWager: Fun([UInt], Null),
   });
   init();
 
   const informTimeout = () => {
-    each([Alice, Bob], () => {
+    each([Host, Guest], () => {
       interact.informTimeout();
     });
   };
 
-  Alice.only(() => {
+  Host.only(() => {
     const amt = declassify(interact.wager);
     const timer = declassify(interact.deadline);
   });
-  Alice.publish(amt, timer).pay(amt);
+  Host.publish(amt, timer).pay(amt);
   commit();
 
-  Bob.only(() => {
+  Guest.only(() => {
     interact.acceptWager(amt);
   });
-  Bob.pay(amt).timeout(relativeTime(timer), () => closeTo(Alice, informTimeout));
+  Guest.pay(amt).timeout(relativeTime(timer), () => closeTo(Host, informTimeout));
   var outcome = [DRAW, 0]
   invariant(balance() == 2 * amt && isOutcome(outcome[0]));
   while (outcome[0] == DRAW ) {
     commit();
 
-    Alice.only(() => {
-      const _aliceSubmission = interact.getSubmission();
-      const [_commitAlice, _saltAlice] = makeCommitment(interact, _aliceSubmission);
-      const commitAlice = declassify(_commitAlice);
+    Host.only(() => {
+      const _hostSubmission = interact.getSubmission();
+      const [_commitHost, _saltHost] = makeCommitment(interact, _hostSubmission);
+      const commitHost = declassify(_commitHost);
     });
-    Alice.publish(commitAlice).timeout(relativeTime(timer), () => closeTo(Bob, informTimeout));
+    Host.publish(commitHost).timeout(relativeTime(timer), () => closeTo(Guest, informTimeout));
     commit();
 
-    unknowable(Bob, Alice(_aliceSubmission, _saltAlice));
+    unknowable(Guest, Host(_hostSubmission, _saltHost));
 
-    Bob.only(() => {
-      const [bobHand, bobTotal] = declassify(interact.getSubmission());
+    Guest.only(() => {
+      const [guestHand, guestTotal] = declassify(interact.getSubmission());
     });
-    Bob.publish(bobHand, bobTotal).timeout(relativeTime(timer), () => closeTo(Alice, informTimeout));
+    Guest.publish(guestHand, guestTotal).timeout(relativeTime(timer), () => closeTo(Host, informTimeout));
     commit();
 
-    Alice.only(() => {
-      const saltAlice = declassify(_saltAlice);
-      const aliceSubmission = declassify(_aliceSubmission);
+    Host.only(() => {
+      const saltHost = declassify(_saltHost);
+      const hostSubmission = declassify(_hostSubmission);
     });
-    Alice.publish(saltAlice, aliceSubmission).timeout(relativeTime(timer), () => closeTo(Bob, informTimeout));
-    checkCommitment(commitAlice, saltAlice, aliceSubmission);
-    const [aliceHand, aliceTotal] = aliceSubmission;
-    outcome = [winner(aliceTotal, bobTotal, aliceHand + bobHand), outcome[1]+1]
+    Host.publish(saltHost, hostSubmission).timeout(relativeTime(timer), () => closeTo(Guest, informTimeout));
+    checkCommitment(commitHost, saltHost, hostSubmission);
+    const [hostHand, hostTotal] = hostSubmission;
+    outcome = [winner(hostTotal, guestTotal, hostHand + guestHand), outcome[1]+1]
     continue;
   }
   assert(outcome[0] == A_WINS || outcome[0] == B_WINS);
-  transfer(2 * amt).to(outcome == A_WINS ? Alice : Bob);
+  transfer(2 * amt).to(outcome == A_WINS ? Host : Guest);
   commit();
 
-  each([Alice, Bob], () => {
+  each([Host, Guest], () => {
     interact.seeOutcome(outcome[0], outcome[1]);
   });
 
